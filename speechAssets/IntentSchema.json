@@ -1,0 +1,23 @@
+{
+  "intents": [
+    {
+      "intent": "SetTempIntent”,
+      "slots": [
+        {
+          "name": “temperature”,
+          "type": "AMAZON.NUMBER"
+        }, 
+        {
+          "name": “thermostat”,
+          "type": "LIST_OF_THERMOSTATS"
+        }
+      ]
+    },
+    {
+      "intent": "StatusIntent"
+    },
+    {
+      "intent": "AMAZON.HelpIntent"
+    }
+  ]
+}

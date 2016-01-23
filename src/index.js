@@ -21,8 +21,7 @@
 /**
  * App ID for the skill
  */
-var APP_ID = ""; //replace with "amzn1.echo-sdk-ams.app.[your-unique-value-here]";
-var NEST_TOKEN = ""; //replace with auth token from Nest
+var APP_ID = "amzn1.echo-sdk-ams.app.4044d8a9-6598-4cdf-9be3-38ed4de66b8d"; //replace with "amzn1.echo-sdk-ams.app.[your-unique-value-here]";
 
 /**
  * The AlexaSkill prototype and helper functions
@@ -53,7 +52,7 @@ NestSkill.prototype.eventHandlers.onSessionStarted = function (sessionStartedReq
 };
 
 NestSkill.prototype.eventHandlers.onLaunch = function (launchRequest, session, response) {
-    console.log("NestSkill onLaunch requestId: " + launchRequest.requestId + ", sessionId: " + session.sessionId);
+    console.log("NestSkill onLaunch requestId: " + launchRequest.requestId + ", sessionId: " + session.sessionId + ", accessToken: " + session.user.accessToken);
     var speechOutput = "Say Status, or Set Temperature Upstairs to 65";
     var repromptText = "Say Status, or Set Temperature Upstairs to 65";
     response.ask(speechOutput, repromptText);
@@ -68,48 +67,63 @@ NestSkill.prototype.eventHandlers.onSessionEnded = function (sessionEndedRequest
 NestSkill.prototype.intentHandlers = {
     // register custom intent handlers
     "StatusIntent": function (intent, session, response) {
-		getNestFromServer(function(body) {
-			console.log("Status onResponse from nest: " + body);
-			var bod = JSON.parse(body);
-			var responseString = "";
-			for (i in bod) { 
-				console.log(i); 
-				var val = bod[i]; 
-				console.log(val.name);
+    	if(!session.user.accessToken) { 
+    		response.tellWithLinkAccount("You must have a Nest account to use this skill. Please use the Alexa app to link your Amazon account with your Nest Account.");
+    	} else { 
+			getNestFromServer(session.user.accessToken, function(body) {
+				console.log("Status onResponse from nest: " + body);
+				var bod = JSON.parse(body);
+				var responseString = "";
+				for (i in bod) { 
+					console.log(i); 
+					var val = bod[i]; 
+					console.log(val.name);
+					
+					console.log("name", val.name);
+					console.log("target temp", val.target_temperature_f);
+					console.log("current temp", val.ambient_temperature_f);
+					
+					responseString += "The temperature " + val.name + " is " + val.ambient_temperature_f + ". The temperature is set to " + val.target_temperature_f + ". ";
+				}
 				
-				console.log("name", val.name);
-				console.log("target temp", val.target_temperature_f);
-				console.log("current temp", val.ambient_temperature_f);
-				
-				responseString += "The temperature " + val.name + " is " + val.ambient_temperature_f + ". The temperature is set to " + val.target_temperature_f + ". ";
-			}
-			
-			response.tellWithCard(responseString, "Greeter", responseString);
-		});
+				response.tellWithCard(responseString, "Greeter", responseString);
+			}, function() {
+				response.tellWithLinkAccount("You must have a Nest account to use this skill. Please use the Alexa app to link your Amazon account with your Nest Account.");
+			});
+    	}
         
     },
     "SetTempIntent": function (intent, session, response) {
-		var temperatureSlot = intent.slots.temperature;
-		var temperature = 0;
-		if (temperatureSlot && temperatureSlot.value) {
-	        	temperature = temperatureSlot.value;
-		}
-		
-		var thermostatSlot = intent.slots.thermostat;
-		var thermostat = "";
-		if (thermostatSlot && thermostatSlot.value) {
-			thermostat = thermostatSlot.value;
-		}
-		
-		setNestTemperatureFromServer(thermostat, function(body) {
-			console.log("SetTemp onResponse from nest: " + body);
+    	if(!session.user.accessToken) { 
+    		response.tellWithLinkAccount("You must have a Nest account to use this skill. Please use the Alexa app to link your Amazon account with your Nest Account.");
+    	} else { 
+
+			var temperatureSlot = intent.slots.temperature;
+			var temperature = 0;
+			if (temperatureSlot && temperatureSlot.value) {
+		        	temperature = temperatureSlot.value;
+			}
 			
-			setNestTemperatureOnDeviceFromServer(body.device_id, temperature, function(body) {
-				console.log("SetTempDevice onResponse from nest: " + body);
+			var thermostatSlot = intent.slots.thermostat;
+			var thermostat = "";
+			if (thermostatSlot && thermostatSlot.value) {
+				thermostat = thermostatSlot.value;
+			}
+			
+			setNestTemperatureFromServer(thermostat, session.user.accessToken, function(body) {
+				console.log("SetTemp onResponse from nest: " + body);
 				
-				response.tellWithCard("Set Temperature " + thermostat + " to " + temperature + ".", "Greeter", "Set temperature " + thermostat + "to " + temperature + ".");
+				setNestTemperatureOnDeviceFromServer(body.device_id, temperature, session.user.accessToken, function(body) {
+					console.log("SetTempDevice onResponse from nest: " + body);
+					
+					response.tellWithCard("Set Temperature " + thermostat + " to " + temperature + ".", "Greeter", "Set temperature " + thermostat + " to " + temperature + ".");
+				}, function() {
+					response.tellWithLinkAccount("You must have a Nest account to use this skill. Please use the Alexa app to link your Amazon account with your Nest Account.");
+				});
+			}, function() {
+				response.tellWithLinkAccount("You must have a Nest account to use this skill. Please use the Alexa app to link your Amazon account with your Nest Account.");
 			});
-		});
+		}
 		
     },
     "AMAZON.HelpIntent": function (intent, session, response) {
@@ -117,7 +131,7 @@ NestSkill.prototype.intentHandlers = {
     }
 };
 
-function doRequest(options, eventCallback, requestNo, data) {
+function doRequest(options, eventCallback, requestNo, data, onUnAuthCallback) {
 	console.log("calling ", options.path);
 	if(requestNo > 5) {
 		console.log("too many redirects");
@@ -138,34 +152,32 @@ function doRequest(options, eventCallback, requestNo, data) {
 	  
 		  var redirectURI = url.parse(location);
 		  console.log('redirect URI', redirectURI);
-		  options = {
-				  hostname: redirectURI.hostname,
-				  port: redirectURI.port,
-				  path: redirectURI.pathname,
-				  method: 'GET',
-				  headers: {'Authorization' : 'Bearer ' + NEST_TOKEN}
-				};
+		  
+		  options.hostname = redirectURI.hostname;
+		  options.port = redirectURI.port;
+		  options.path = redirectURI.pathname;
+		  
 	    
-	    doRequest(options, eventCallback, requestNo + 1);
+	    doRequest(options, eventCallback, requestNo + 1, data, onUnAuthCallback);
 	  } else if (res.statusCode === 401) {
 		  redirect = true;
-	    var authHeader = req._auth.onResponse(res);
-	    if (authHeader) {
-	      req.setHeader('authorization', authHeader);
-	      var location = res.headers.location;
-		    console.log('redirect', location);
-		  
-			  var redirectURI = new URI(location);
-			  console.log('redirect URI', redirectURI);
-	      options = {
-				  hostname: redirectURI.hostname,
-				  port: redirectURI.port,
-				  path: redirectURI.pathname,
-				  method: 'GET',
-				  headers: {'Authorization' : 'Bearer ' + NEST_TOKEN}
-				};
-	    
-	      doRequest(options, eventCallback, requestNo + 1);
+		  if(req._auth) {
+		    var authHeader = req._auth.onResponse(res);
+		    if (authHeader) {
+		      req.setHeader('authorization', authHeader);
+		      var location = res.headers.location;
+			    console.log('redirect', location);
+			  
+				  var redirectURI = new URI(location);
+				  console.log('redirect URI', redirectURI);
+			      options.hostname = redirectURI.hostname;
+				  options.port = redirectURI.port;
+				  options.path = redirectURI.pathname;
+		    
+		      doRequest(options, eventCallback, requestNo + 1, data, onUnAuthCallback);
+		  }
+	    } else {
+	    	onUnAuthCallback();
 	    }
 	  }
 	  
@@ -191,27 +203,27 @@ function doRequest(options, eventCallback, requestNo, data) {
 	});
 }
 
-function getNestFromServer(eventCallback) {
+function getNestFromServer(nestToken, eventCallback, onUnAuthCallback) {
 	var options = {
 	  hostname: 'developer-api.nest.com',
 	  port: 443,
 	  path: '/devices/thermostats/',
 	  method: 'GET',
-	  headers: {'Authorization' : 'Bearer ' + NEST_TOKEN}
+	  headers: {'Authorization' : 'Bearer ' + nestToken}
 	};
 
-	doRequest(options, eventCallback, 0);	
+	doRequest(options, eventCallback, 0, null, onUnAuthCallback);	
 				  
 			  
 }
 
-function setNestTemperatureFromServer(thermostat, eventCallback) {
+function setNestTemperatureFromServer(thermostat, nestToken, eventCallback, onUnAuthCallback) {
 	var options = {
 	  hostname: 'developer-api.nest.com',
 	  port: 443,
 	  path: '/devices/thermostats/',
 	  method: 'GET',
-	  headers: {'Authorization' : 'Bearer ' + NEST_TOKEN}
+	  headers: {'Authorization' : 'Bearer ' + nestToken}
 	};
 
 	doRequest(options, function(body) {
@@ -232,24 +244,24 @@ function setNestTemperatureFromServer(thermostat, eventCallback) {
 			
 		}
 	
-		}, 0);
+		}, 0, null, onUnAuthCallback);
 				  	  
 }
 
-function setNestTemperatureOnDeviceFromServer(thermostat, temperature, eventCallback) {
+function setNestTemperatureOnDeviceFromServer(thermostat, temperature, nestToken, eventCallback, onUnAuthCallback) {
 	var options = {
 	  hostname: 'developer-api.nest.com',
 	  port: 443,
 	  path: '/devices/thermostats/' + thermostat,
 	  method: 'PUT',
-	  headers: {'Authorization' : 'Bearer ' + NEST_TOKEN}
+	  headers: {'Authorization' : 'Bearer ' + nestToken}
 	};
 
 	doRequest(options, function(body) {
 		console.log("SetTemp on device onResponse from nest: " + body);
 		eventCallback(body);
 	
-		}, 0, '{"target_temperature_f":' + temperature + '}');
+		}, 0, '{"target_temperature_f":' + temperature + '}', onUnAuthCallback);
 				  	  
 }
 

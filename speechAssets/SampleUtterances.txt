@@ -1,3 +1,10 @@
 StatusIntent status
 StatusIntent what is the temperature
 SetTempIntent set {thermostat} to {temperature}
+StatusIntent what the temperature is 
+StatusIntent what's the current temperature 
+StatusIntent what the current temperature is 
+StatusIntent tell me the current status 
+StatusIntent give me the temperature 
+StatusIntent the current temperature 
+SetTempIntent {thermostat} to {temperature} 

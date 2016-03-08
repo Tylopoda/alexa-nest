@@ -53,8 +53,8 @@ NestSkill.prototype.eventHandlers.onSessionStarted = function (sessionStartedReq
 
 NestSkill.prototype.eventHandlers.onLaunch = function (launchRequest, session, response) {
     console.log("NestSkill onLaunch requestId: " + launchRequest.requestId + ", sessionId: " + session.sessionId + ", accessToken: " + session.user.accessToken);
-    var speechOutput = "Say Status, or Set Temperature Upstairs to 65";
-    var repromptText = "Say Status, or Set Temperature Upstairs to 65";
+    var speechOutput = "Welcome to Mother Goose for Nest. I can help you control one or more Nest thermostats. Try asking Status, or Set Upstairs to 65. How can I help you?";
+    var repromptText = "Welcome to Mother Goose for Nest. I can help you control one or more Nest thermostats. Try asking Status, or Set Upstairs to 65. How can I help you?";
     response.ask(speechOutput, repromptText);
 };
 
@@ -86,7 +86,7 @@ NestSkill.prototype.intentHandlers = {
 					responseString += "The temperature " + val.name + " is " + val.ambient_temperature_f + ". The temperature is set to " + val.target_temperature_f + ". ";
 				}
 				
-				response.tellWithCard(responseString, "Greeter", responseString);
+				response.tellWithCard(responseString, "Mother Goose for Nest", responseString);
 			}, function() {
 				response.tellWithLinkAccount("You must have a Nest account to use this skill. Please use the Alexa app to link your Amazon account with your Nest Account.");
 			});
@@ -115,19 +115,59 @@ NestSkill.prototype.intentHandlers = {
 				
 				setNestTemperatureOnDeviceFromServer(body.device_id, temperature, session.user.accessToken, function(body) {
 					console.log("SetTempDevice onResponse from nest: " + body);
-					
-					response.tellWithCard("Set Temperature " + thermostat + " to " + temperature + ".", "Greeter", "Set temperature " + thermostat + " to " + temperature + ".");
+					var bod = JSON.parse(body);
+					if(bod.error && bod.error.indexOf("too low") > -1) {
+						response.tellWithCard("Sorry, I could not set " + thermostat + " to " + temperature + ". Temperature was too low", "Mother Goose for Nest", "Sorry, I could not set " + thermostat + " to " + temperature + ". Temperature was too low");
+					} else if (bod.error) {
+						response.tellWithCard("Sorry, I could not set " + thermostat + " to " + temperature + ". Temperature was too high", "Mother Goose for Nest", "Sorry, I could not set " + thermostat + " to " + temperature + ". Temperature was too high");
+					} else {
+						response.tellWithCard("Set Temperature " + thermostat + " to " + temperature + ".", "Mother Goose for Nest", "Set temperature " + thermostat + " to " + temperature + ".");
+					}
 				}, function() {
 					response.tellWithLinkAccount("You must have a Nest account to use this skill. Please use the Alexa app to link your Amazon account with your Nest Account.");
 				});
 			}, function() {
 				response.tellWithLinkAccount("You must have a Nest account to use this skill. Please use the Alexa app to link your Amazon account with your Nest Account.");
+			}, function() {
+				//didn't find device
+			    var cardTitle = "Mother Goose for Nest";
+			    var repromptText = "Sorry, I couldn't find that device. Could you please repeat that?";
+			    var speechText = "Sorry, I couldn't find that device. Could you please repeat that?;"
+			    var cardOutput = "Sorry, I couldn't find that device. Could you please repeat that?";
+			    // If the user either does not reply to the welcome message or says something that is not
+			    // understood, they will be prompted again with this text.
+
+			    var speechOutput = {
+			        speech: "<speak>" + speechText + "</speak>",
+			        type: AlexaSkill.speechOutputType.SSML
+			    };
+			    var repromptOutput = {
+			        speech: repromptText,
+			        type: AlexaSkill.speechOutputType.PLAIN_TEXT
+			    };
+			    response.askWithCard(speechOutput, repromptOutput, cardTitle, cardOutput);
+
 			});
 		}
 		
     },
     "AMAZON.HelpIntent": function (intent, session, response) {
-        response.ask("You can ask me status, or set the temperature on a thermostat", "You can ask me status, or set the temperature on a thermostat");
+        response.ask("I am Mother Goose for Nest. I can help you control one or more Nest thermostats. Try asking Status to get the current temperature and set temperature for each thermostat, or Set thermostat name to temperature. For example, set Downstairs to 55. How can I help you?", "I am Mother Goose for Nest. I can help you control one or more Nest thermostats. Try asking Status to get the current temperature and set temperature for each thermostat, or Set thermostat name to temperature. For example, set Downstairs to 55. How can I help you?");
+    },
+     "AMAZON.StopIntent": function (intent, session, response) {
+        var speechOutput = {
+                speech: "Goodbye",
+                type: AlexaSkill.speechOutputType.PLAIN_TEXT
+        };
+        response.tell(speechOutput);
+    },
+
+    "AMAZON.CancelIntent": function (intent, session, response) {
+        var speechOutput = {
+                speech: "Goodbye",
+                type: AlexaSkill.speechOutputType.PLAIN_TEXT
+        };
+        response.tell(speechOutput);
     }
 };
 
@@ -217,7 +257,7 @@ function getNestFromServer(nestToken, eventCallback, onUnAuthCallback) {
 			  
 }
 
-function setNestTemperatureFromServer(thermostat, nestToken, eventCallback, onUnAuthCallback) {
+function setNestTemperatureFromServer(thermostat, nestToken, eventCallback, onUnAuthCallback, onNotFoundCallback) {
 	var options = {
 	  hostname: 'developer-api.nest.com',
 	  port: 443,
@@ -240,9 +280,11 @@ function setNestTemperatureFromServer(thermostat, nestToken, eventCallback, onUn
 			if(val.name.toUpperCase() === thermostat.toUpperCase()) {
 				console.log("matched", thermostat);
 				eventCallback(val);
+				return;
 			}
 			
 		}
+		onNotFoundCallback(thermostat);
 	
 		}, 0, null, onUnAuthCallback);
 				  	  

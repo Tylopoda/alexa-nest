@@ -21,7 +21,7 @@
 /**
  * App ID for the skill
  */
-var APP_ID = "amzn1.echo-sdk-ams.app.4044d8a9-6598-4cdf-9be3-38ed4de66b8d"; //replace with "amzn1.echo-sdk-ams.app.[your-unique-value-here]";
+var APP_ID = "amzn1.echo-sdk-ams.app.c176feea-934a-4fbd-81ce-99ba0bc32cb6"; //replace with "amzn1.echo-sdk-ams.app.[your-unique-value-here]";
 
 /**
  * The AlexaSkill prototype and helper functions
